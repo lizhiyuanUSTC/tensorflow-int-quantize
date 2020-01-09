@@ -5,6 +5,15 @@ import cfg
 from utils import int_quantize, uint_quantize, _variable_on_cpu, _variable_with_weight_decay
 
 
+def relu(x):
+    max_value = cfg.relu_max
+    if max_value is None:
+        x = tf.nn.relu(x)
+    else:
+        x = tf.clip_by_value(x, clip_value_min=0, clip_value_max=max_value)
+    return x
+
+
 def batch_norm_for_conv(x, phase_train, scope='bn'):
     channels = x.shape.as_list()[3]
     with tf.variable_scope(scope):
@@ -105,7 +114,7 @@ def conv_bn_relu(x, x_float, out_channels, ksize, stride=1, groups=1,
                 f, f_float = int_quantize(f, scale[scope]['output'], num_bits=num_bits, phase_train=phase_train)
         else:
             if has_relu:
-                f = tf.nn.relu6(f)
+                f = relu(f)
             f_float = f
         node['output'] = f
         print(scope, f.shape)
@@ -129,7 +138,7 @@ def add(x, x_float, y, y_float, phase_train, has_relu=False, scale=None, qactiva
             f, f_float = int_quantize(f, scale[scope]['output'], num_bits=num_bits, phase_train=phase_train)
     else:
         if has_relu:
-            f = tf.nn.relu6(f)
+            f = relu(f)
         f_float = f
     node = {'input': [x, y],
             'output': f}
@@ -139,3 +148,31 @@ def add(x, x_float, y, y_float, phase_train, has_relu=False, scale=None, qactiva
     tf.add_to_collection('cfg_nodes', cfg_node)
 
     return f, f_float
+
+
+def loss(logits, labels):
+    softmax_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits)
+    softmax_loss = tf.reduce_mean(softmax_loss)
+    tf.add_to_collection('losses', softmax_loss)
+    total_loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
+
+    acc = 100 * tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits, labels, 1), dtype=tf.float32))
+
+    return total_loss, softmax_loss, acc
+
+
+def train(total_loss, lr, global_step):
+    opt = tf.train.MomentumOptimizer(lr, 0.9)
+    grads = opt.compute_gradients(total_loss)
+
+    for var in tf.trainable_variables():
+        tf.summary.histogram(var.op.name, var)
+
+    # Add histograms for gradients.
+    for grad, var in grads:
+        tf.summary.histogram(var.op.name + '/gradients', grad)
+
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    with tf.control_dependencies(update_ops):
+        apply_gradient = opt.apply_gradients(grads, global_step=global_step)
+    return apply_gradient

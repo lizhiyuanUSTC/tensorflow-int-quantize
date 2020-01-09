@@ -31,19 +31,18 @@ def create_separable_conv(x, x_float, out_channels, ksize, stride=1,
 
     f = x
     f_float = x_float
-
     f, f_float = conv_bn_relu(f, f_float, depthwise_filters, ksize, stride=stride, qweight=qweight,
                               qactivation=qactivation,
                               padding='SAME', groups=depthwise_filters, scale=scale,
                               has_bn=has_bn, has_relu=has_relu, phase_train=phase_train,
                               scope=prefix + 'depthwise')
     f, f_float = conv_bn_relu(f, f_float, pointwise_filters, 1, stride=1, qweight=qweight, qactivation=qactivation,
-                              padding='SAME', scale=scale, has_bn=has_bn, has_relu=False, phase_train=phase_train,
+                              padding='SAME', scale=scale, has_bn=has_bn, has_relu=True, phase_train=phase_train,
                               scope=prefix + 'pointwise')
     return f, f_float
 
 
-def inference(images, phase_train=False, has_bn=True, image_norm=True, alpha=1.0,
+def inference(images, phase_train=False, has_bn=True, image_norm=True,
               qactivation=False, qweight=False, scale=None):
     images = tf.cast(images, dtype=cfg.dtype)
     if image_norm:
@@ -53,32 +52,30 @@ def inference(images, phase_train=False, has_bn=True, image_norm=True, alpha=1.0
     else:
         images = images - 128
 
+    alpha = 1.0
     first_block_filters = _make_divisible(32 * alpha, 8)
     f, f_float = conv_bn_relu(images, None, first_block_filters, 3, 2, qweight=qweight, qactivation=qactivation,
                               scale=scale,
                               has_bn=has_bn, has_relu=True, phase_train=phase_train, scope=cfg.first_conv_name)
     f, f_float = create_separable_conv(f, f_float, int(64 * alpha), 3, 1, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
-                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=0)
+                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=1)
 
     f, f_float = create_separable_conv(f, f_float, int(128 * alpha), 3, 2, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
-                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=1)
+                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=2)
     f, f_float = create_separable_conv(f, f_float, int(128 * alpha), 3, 1, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
-                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=2)
+                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=3)
 
     f, f_float = create_separable_conv(f, f_float, int(256 * alpha), 3, 2, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
-                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=3)
+                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=4)
     f, f_float = create_separable_conv(f, f_float, int(256 * alpha), 3, 1, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
-                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=4)
+                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=5)
 
     f, f_float = create_separable_conv(f, f_float, int(512 * alpha), 3, 2, qweight=qweight, qactivation=qactivation,
-                                       scale=scale,
-                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=5)
-    f, f_float = create_separable_conv(f, f_float, int(512 * alpha), 3, 1, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
                                        has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=6)
     f, f_float = create_separable_conv(f, f_float, int(512 * alpha), 3, 1, qweight=qweight, qactivation=qactivation,
@@ -93,13 +90,16 @@ def inference(images, phase_train=False, has_bn=True, image_norm=True, alpha=1.0
     f, f_float = create_separable_conv(f, f_float, int(512 * alpha), 3, 1, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
                                        has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=10)
+    f, f_float = create_separable_conv(f, f_float, int(512 * alpha), 3, 1, qweight=qweight, qactivation=qactivation,
+                                       scale=scale,
+                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=11)
 
     f, f_float = create_separable_conv(f, f_float, int(1024 * alpha), 3, 2, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
-                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=11)
+                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=12)
     f, f_float = create_separable_conv(f, f_float, int(1024 * alpha), 3, 1, qweight=qweight, qactivation=qactivation,
                                        scale=scale,
-                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=12)
+                                       has_bn=has_bn, has_relu=True, phase_train=phase_train, block_id=13)
 
     f, f_float = conv_bn_relu(f, f_float, 1000, 1, stride=1, padding='SAME', qweight=qweight, qactivation=False,
                               scale=scale,

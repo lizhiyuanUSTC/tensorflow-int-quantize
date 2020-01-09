@@ -72,3 +72,8 @@ def _variable_with_weight_decay(name, shape, dtype=cfg.dtype):
             weight_decay = tf.to_float(weight_decay)
         tf.add_to_collection('losses', weight_decay)
     return var
+
+
+def get_learning_rate(epoch, step, num_batch):
+    lr = cfg.init_lr * (math.cos(math.pi * epoch / cfg.max_epoch) + 1) / 2.0
+    return lr

@@ -8,38 +8,7 @@ from tqdm import tqdm
 import cfg
 from net import inference
 from quantize_model import prepare_calibrate_imgs, find_weight_scale, find_feature_map_scale
-
-
-def init():
-    from keras.applications import MobileNetV2
-
-    network = MobileNetV2(alpha=1.0)
-    params = network.get_weights()
-
-    graph = tf.Graph()
-    with graph.as_default():
-        images = np.random.rand(1, 224, 224, 3)
-
-        inference(images, False)
-
-        model_checkpoint_path = 'log/model_dump/model.ckpt'
-        var_list = tf.get_collection('params')
-        assert len(var_list) == len(params)
-        saver = tf.train.Saver(var_list)
-
-        with tf.Session(graph=graph) as sess:
-            sess.run(tf.global_variables_initializer())
-            for i in range(len(var_list)):
-                if 'depthwise' in var_list[i].name and len(params[i].shape) == 4:
-                    params[i] = np.transpose(params[i], (0, 1, 3, 2))
-                if len(params[i].shape) == 2:
-                    params[i] = np.expand_dims(params[i], 0)
-                    params[i] = np.expand_dims(params[i], 0)
-                print(var_list[i].name, var_list[i].shape, params[i].shape)
-                sess.run(tf.assign(var_list[i], params[i]))
-
-            saver.save(sess, model_checkpoint_path, write_meta_graph=False,
-                       write_state=False)
+import dataset
 
 
 def fix_input(w, b, fix_on_bn):
@@ -167,8 +136,8 @@ def find_quantize_scale(model_checkpoint_path):
                 pickle.dump(cfg_nodes, f)
 
 
-def bn_ema(model_checkpoint_path='log/model_dump/model_fix_input.ckpt'):
-    import dataset
+def bn_ema(model_checkpoint_path='log/model_dump/model_fix_input.ckpt',
+           qweight=True, qactivation=True):
 
     with open('log/scale', 'rb') as f:
         scale = pickle.load(f)
@@ -178,7 +147,7 @@ def bn_ema(model_checkpoint_path='log/model_dump/model_fix_input.ckpt'):
         iterator = dataset.make_train_dataset()
         images, labels = iterator.get_next()
         inference(images, True, has_bn=True, image_norm=False,
-                  qweight=True, qactivation=True, scale=scale)
+                  qweight=qweight, qactivation=qactivation, scale=scale)
 
         update_bn = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
@@ -222,62 +191,3 @@ def find_connect(nodes, cfg_nodes):
         print(node['name'], node['input_layer'])
 
     return cfg_nodes
-
-
-def evaluate(model_checkpoint_path='log/model_dump/model.ckpt', has_bn=True,
-             qweight=False, qactivation=False, image_norm=True):
-    import dataset
-
-    scale = None
-    if qweight or qactivation:
-        with open('log/scale', 'rb') as f:
-            scale = pickle.load(f)
-
-    graph = tf.Graph()
-    with graph.as_default():
-        iterator = dataset.make_val_dataset()
-        images, labels = iterator.get_next()
-        val_logits = inference(images, False, has_bn=has_bn, image_norm=image_norm,
-                               qweight=qweight, qactivation=qactivation, scale=scale)
-        val_acc = 100 * tf.reduce_mean(tf.cast(tf.nn.in_top_k(val_logits, labels, 1), dtype=tf.float32))
-
-        var_list = tf.get_collection('params')
-        saver = tf.train.Saver(var_list)
-
-        with tf.Session(graph=graph) as sess:
-            sess.run(tf.global_variables_initializer())
-            saver.restore(sess, model_checkpoint_path)
-
-            eval_acc = 0
-            num_epoch = 50000 // cfg.eval_batch_size
-            # num_epoch = 10
-            for _ in tqdm(range(num_epoch)):
-                _val_acc = sess.run(val_acc)
-                eval_acc += _val_acc
-            print(eval_acc / num_epoch)
-            return eval_acc / num_epoch
-
-
-def main():
-    os.environ['CUDA_VISIBLE_DEVICES'] = '7'
-
-    init()
-    acc_original = evaluate(model_checkpoint_path='log/model_dump/model.ckpt', has_bn=True,
-                            qweight=False, qactivation=False, image_norm=True)
-    fix_input_params()
-    acc_fix_input = evaluate(model_checkpoint_path='log/model_dump/model_fix_input.ckpt', has_bn=True,
-                             qweight=False, qactivation=False, image_norm=False)
-    find_quantize_scale('log/model_dump/model_fix_input.ckpt')
-    acc_int = evaluate(model_checkpoint_path='log/model_dump/model_fix_input.ckpt', has_bn=True,
-                       qweight=True, qactivation=True, image_norm=False)
-    bn_ema('log/model_dump/model_fix_input.ckpt')
-    acc_int_bn_ema = evaluate(model_checkpoint_path='log/model_dump/model_fix_input_bn_ema.ckpt', has_bn=True,
-                              qweight=True, qactivation=True, image_norm=False)
-    print('float acc = %.3f%%' % acc_original)
-    print('float fix input = %.3f%%' % acc_fix_input)
-    print('int acc = %.3f%%' % acc_int)
-    print('int acc after bn ema = %.3f%%' % acc_int_bn_ema)
-
-
-if __name__ == '__main__':
-    main()

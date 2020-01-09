@@ -53,7 +53,7 @@ def create_separable_conv(x, x_float, out_channels, ksize, stride=1,
     return f, f_float
 
 
-def inference(images, phase_train=False, has_bn=True, image_norm=True, alpha=1.0,
+def inference(images, phase_train=False, has_bn=True, image_norm=True,
               qactivation=False, qweight=False, scale=None):
     images = tf.cast(images, dtype=cfg.dtype)
     if image_norm:
@@ -63,6 +63,7 @@ def inference(images, phase_train=False, has_bn=True, image_norm=True, alpha=1.0
     else:
         images = images - 128
 
+    alpha = 1.0
     first_block_filters = _make_divisible(32 * alpha, 8)
     f, f_float = conv_bn_relu(images, None, first_block_filters, 3, 2, qweight=qweight, qactivation=qactivation,
                               scale=scale,
