@@ -15,7 +15,7 @@ def fix_input(w, b, fix_on_bn):
     mean = np.array(cfg.image_mean, dtype=np.float32)
     std = np.array(cfg.image_std, dtype=np.float32)
     w = w / np.reshape(std, (1, 1, -1, 1))
-    _, k_h, k_w, _ = w.shape
+    k_h, k_w, _, _ = w.shape
 
     graph = tf.Graph()
     with graph.as_default():
